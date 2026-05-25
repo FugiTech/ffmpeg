@@ -1,4 +1,4 @@
-From 62fff4897591bea815de1d6539cc2586cefab32c Mon Sep 17 00:00:00 2001
+From ebe81800c5ffaa107dcbb399817808262c40487f Mon Sep 17 00:00:00 2001
 From: Fugi <fugiman47@gmail.com>
 Date: Wed, 18 Feb 2026 10:57:48 +0900
 Subject: [PATCH] wip
@@ -10,16 +10,16 @@ Subject: [PATCH] wip
  libavcodec/bsf/awebp2webp.c    | 348 ++++++++++++
  libavcodec/codec_desc.c        |   3 +-
  libavcodec/libsvtav1.c         |  69 ++-
- libavcodec/webp.c              | 971 ++++++++++++++++++++++++++++++---
+ libavcodec/webp.c              | 983 ++++++++++++++++++++++++++++++---
  libavformat/Makefile           |   1 +
  libavformat/allformats.c       |   1 +
  libavformat/webpdec.c          | 401 ++++++++++++++
- 10 files changed, 1720 insertions(+), 77 deletions(-)
+ 10 files changed, 1732 insertions(+), 77 deletions(-)
  create mode 100644 libavcodec/bsf/awebp2webp.c
  create mode 100644 libavformat/webpdec.c
 
 diff --git a/configure b/configure
-index a0eed36abf..2fde6742d8 100755
+index a0eed36abfe35dcca7f6dce182b9825ad791e65f..2fde6742d8c788dec32b9a0e3ebf1d3985af63d0 100755
 --- a/configure
 +++ b/configure
 @@ -3533,6 +3533,7 @@ aac_adtstoasc_bsf_select="adts_header mpeg4audio"
@@ -31,7 +31,7 @@ index a0eed36abf..2fde6742d8 100755
  dts2pts_bsf_select="cbs_h264 h264parse"
  eac3_core_bsf_select="ac3_parser"
 diff --git a/libavcodec/bitstream_filters.c b/libavcodec/bitstream_filters.c
-index c277bc1a71..0f7e04ee3c 100644
+index c277bc1a71483f71f05a7b7e930ecf8c0e651618..0f7e04ee3ccea2f61a6f79c4a57995d8ea759777 100644
 --- a/libavcodec/bitstream_filters.c
 +++ b/libavcodec/bitstream_filters.c
 @@ -29,6 +29,7 @@ extern const FFBitStreamFilter ff_apv_metadata_bsf;
@@ -43,7 +43,7 @@ index c277bc1a71..0f7e04ee3c 100644
  extern const FFBitStreamFilter ff_dump_extradata_bsf;
  extern const FFBitStreamFilter ff_dca_core_bsf;
 diff --git a/libavcodec/bsf/Makefile b/libavcodec/bsf/Makefile
-index 8e2e6f7b14..7a888e1582 100644
+index 8e2e6f7b14bdcdfc0f49825cbbc2bd7f7c3f8229..7a888e158235bc47413249d7f0d2f39e622e36ad 100644
 --- a/libavcodec/bsf/Makefile
 +++ b/libavcodec/bsf/Makefile
 @@ -6,6 +6,7 @@ OBJS-$(CONFIG_APV_METADATA_BSF)           += bsf/apv_metadata.o
@@ -56,7 +56,7 @@ index 8e2e6f7b14..7a888e1582 100644
  OBJS-$(CONFIG_DTS2PTS_BSF)                += bsf/dts2pts.o
 diff --git a/libavcodec/bsf/awebp2webp.c b/libavcodec/bsf/awebp2webp.c
 new file mode 100644
-index 0000000000..388b72a270
+index 0000000000000000000000000000000000000000..388b72a270ccab3af0cb0f9623ab8e9bd671f59e
 --- /dev/null
 +++ b/libavcodec/bsf/awebp2webp.c
 @@ -0,0 +1,348 @@
@@ -409,7 +409,7 @@ index 0000000000..388b72a270
 +    .close          = awebp2webp_close,
 +};
 diff --git a/libavcodec/codec_desc.c b/libavcodec/codec_desc.c
-index a065556e51..49eebbef93 100644
+index a065556e51cf7bfe8fc1dea0ec93dbae4c22e366..49eebbef931e12b34f7bed70458137e14efb2330 100644
 --- a/libavcodec/codec_desc.c
 +++ b/libavcodec/codec_desc.c
 @@ -1261,8 +1261,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
@@ -423,7 +423,7 @@ index a065556e51..49eebbef93 100644
      },
      {
 diff --git a/libavcodec/libsvtav1.c b/libavcodec/libsvtav1.c
-index c6a0ff90bc..6522d711ce 100644
+index c6a0ff90bc58c7ed774d0a1454bacde5e87b37e1..6522d711ce0d1e0200b083782b4fb0e6014d3012 100644
 --- a/libavcodec/libsvtav1.c
 +++ b/libavcodec/libsvtav1.c
 @@ -71,8 +71,55 @@ typedef struct SvtContext {
@@ -438,7 +438,7 @@ index c6a0ff90bc..6522d711ce 100644
 +    int nb_frame_durations;
 +    unsigned frame_durations_size;
  } SvtContext;
-
+ 
 +static int store_frame_duration(SvtContext *svt_enc, int64_t pts, int64_t duration)
 +{
 +    void *tmp;
@@ -492,12 +492,12 @@ index c6a0ff90bc..6522d711ce 100644
          param->enable_adaptive_quantization = 0;
 +#endif
      }
-
+ 
      desc = av_pix_fmt_desc_get(avctx->pix_fmt);
 @@ -306,13 +357,9 @@ static int config_enc_params(EbSvtAv1EncConfiguration *param,
          param->force_key_frames = 1;
  #endif
-
+ 
 -    if (avctx->framerate.num > 0 && avctx->framerate.den > 0) {
 -        param->frame_rate_numerator   = avctx->framerate.num;
 -        param->frame_rate_denominator = avctx->framerate.den;
@@ -508,13 +508,13 @@ index c6a0ff90bc..6522d711ce 100644
 +    // Keep a fixed nominal rate to avoid SVT-AV1 failures on high input fps.
 +    param->frame_rate_numerator   = 100;
 +    param->frame_rate_denominator = 1;
-
+ 
      /* 2 = IDR, closed GOP, 1 = CRA, open GOP */
      param->intra_refresh_type = avctx->flags & AV_CODEC_FLAG_CLOSED_GOP ? 2 : 1;
 @@ -521,6 +568,10 @@ static int eb_send_frame(AVCodecContext *avctx, const AVFrame *frame)
      headerPtr->p_app_private = NULL;
      headerPtr->pts           = frame->pts;
-
+ 
 +    ret = store_frame_duration(svt_enc, frame->pts, frame->duration);
 +    if (ret < 0)
 +        return ret;
@@ -527,21 +527,21 @@ index c6a0ff90bc..6522d711ce 100644
      pkt->pts  = headerPtr->pts;
      pkt->dts  = headerPtr->dts;
 +    pkt->duration = consume_frame_duration(svt_enc, pkt->pts);
-
+ 
      switch (headerPtr->pic_type) {
      case EB_AV1_KEY_PICTURE:
 @@ -682,6 +734,9 @@ static av_cold int eb_enc_close(AVCodecContext *avctx)
      }
-
+ 
      av_buffer_pool_uninit(&svt_enc->pool);
 +    av_freep(&svt_enc->frame_durations);
 +    svt_enc->nb_frame_durations = 0;
 +    svt_enc->frame_durations_size = 0;
      av_frame_free(&svt_enc->frame);
      ff_dovi_ctx_unref(&svt_enc->dovi);
-
+ 
 diff --git a/libavcodec/webp.c b/libavcodec/webp.c
-index 7d77d64524..0501590b84 100644
+index 7d77d645241eff49dee5b2341ff0b36f8dc4a858..ba2cb58105a5aed77e0d614b525e265de1b487b0 100644
 --- a/libavcodec/webp.c
 +++ b/libavcodec/webp.c
 @@ -35,13 +35,17 @@
@@ -557,12 +557,12 @@ index 7d77d64524..0501590b84 100644
 + * @author Thilo Borgmann <thilo.borgmann _at_ mail.de>
 + * XMP metadata
   */
-
+ 
 +#include "libavutil/common.h"
  #include "libavutil/imgutils.h"
  #include "libavutil/mem.h"
 +#include "libavutil/colorspace.h"
-
+ 
  #define BITSTREAM_READER_LE
  #include "avcodec.h"
 @@ -50,6 +54,7 @@
@@ -576,7 +576,7 @@ index 7d77d64524..0501590b84 100644
 @@ -60,8 +65,6 @@
  #define VP8X_FLAG_ALPHA                 0x10
  #define VP8X_FLAG_ICC                   0x20
-
+ 
 -#define MAX_PALETTE_SIZE                256
 -#define MAX_CACHE_BITS                  11
  #define NUM_CODE_LENGTH_CODES           19
@@ -585,7 +585,7 @@ index 7d77d64524..0501590b84 100644
 @@ -70,6 +73,14 @@
  #define NUM_SHORT_DISTANCES             120
  #define MAX_HUFFMAN_CODE_LENGTH         15
-
+ 
 +#define ANMF_DISPOSAL_METHOD            0x01
 +#define ANMF_DISPOSAL_METHOD_UNCHANGED  0x00
 +#define ANMF_DISPOSAL_METHOD_BACKGROUND 0x01
@@ -635,20 +635,20 @@ index 7d77d64524..0501590b84 100644
 +    uint8_t background_yuva[4];         /* background color in YUVA format */
 +    const uint8_t *background_data[4];  /* "planes" for background color in YUVA format */
 +    uint8_t transparent_yuva[4];        /* transparent black in YUVA format */
-
+ 
      int nb_transforms;                  /* number of transforms */
      enum TransformType transforms[4];   /* transformations used in the image, in order */
 @@ -1091,7 +1122,6 @@ static int vp8_lossless_decode_frame(AVCodecContext *avctx, AVFrame *p,
      int w, h, ret, i, used;
-
+ 
      if (!is_alpha_chunk) {
 -        s->lossless = 1;
          avctx->pix_fmt = AV_PIX_FMT_ARGB;
      }
-
+ 
 @@ -1301,12 +1331,14 @@ static int vp8_lossy_decode_frame(AVCodecContext *avctx, AVFrame *p,
      int ret;
-
+ 
      if (!s->initialized) {
 -        ff_vp8_decode_init(avctx);
 +        VP8Context *s_vp8 = s->avctx_vp8->priv_data;
@@ -661,13 +661,13 @@ index 7d77d64524..0501590b84 100644
 +    s->avctx_vp8->pix_fmt = avctx->pix_fmt;
 +
 +    ff_thread_finish_setup(s->avctx);
-
+ 
      if (data_size > INT_MAX) {
          av_log(avctx, AV_LOG_ERROR, "unsupported chunk size\n");
 @@ -1317,14 +1349,29 @@ static int vp8_lossy_decode_frame(AVCodecContext *avctx, AVFrame *p,
      s->pkt->data = data_start;
      s->pkt->size = data_size;
-
+ 
 -    ret = ff_vp8_decode_frame(avctx, p, got_frame, s->pkt);
 -    if (ret < 0)
 +    ret = avcodec_send_packet(s->avctx_vp8, s->pkt);
@@ -675,14 +675,14 @@ index 7d77d64524..0501590b84 100644
 +        av_log(avctx, AV_LOG_ERROR, "Error submitting a packet for decoding\n");
          return ret;
 +    }
-
+ 
 -    if (!*got_frame)
 +    ret = avcodec_receive_frame(s->avctx_vp8, p);
 +    if (ret < 0) {
 +        av_log(avctx, AV_LOG_ERROR, "VP8 decoding error: %s.\n", av_err2str(ret));
          return AVERROR_INVALIDDATA;
 +    }
-
+ 
 -    update_canvas_size(avctx, avctx->width, avctx->height);
 +    ret = ff_decode_frame_props(avctx, p);
 +    if (ret < 0) {
@@ -695,13 +695,13 @@ index 7d77d64524..0501590b84 100644
 +    }
 +
 +    *got_frame = 1;
-
+ 
      if (s->has_alpha) {
          ret = vp8_lossy_decode_alpha(avctx, p, s->alpha_data,
 @@ -1335,40 +1382,93 @@ static int vp8_lossy_decode_frame(AVCodecContext *avctx, AVFrame *p,
      return ret;
  }
-
+ 
 -static int webp_decode_frame(AVCodecContext *avctx, AVFrame *p,
 -                             int *got_frame, AVPacket *avpkt)
 +static int init_canvas_frame(WebPContext *s, int format, int key_frame)
@@ -785,7 +785,7 @@ index 7d77d64524..0501590b84 100644
      int ret;
      uint32_t chunk_type, chunk_size;
 -    int vp8x_flags = 0;
-
+ 
 -    s->avctx     = avctx;
 -    s->width     = 0;
 -    s->height    = 0;
@@ -795,7 +795,7 @@ index 7d77d64524..0501590b84 100644
 -    s->has_iccp  = 0;
 -    bytestream2_init(&gb, avpkt->data, avpkt->size);
 +    bytestream2_init(&gb, data, size);
-
+ 
 -    if (bytestream2_get_bytes_left(&gb) < 12)
 -        return AVERROR_INVALIDDATA;
 -
@@ -816,13 +816,13 @@ index 7d77d64524..0501590b84 100644
 +    s->has_exif      = 0;
 +    s->has_iccp      = 0;
 +    s->has_xmp       = 0;
-
+ 
      while (bytestream2_get_bytes_left(&gb) > 8) {
          char chunk_str[5] = { 0 };
 @@ -1379,6 +1479,10 @@ static int webp_decode_frame(AVCodecContext *avctx, AVFrame *p,
              return AVERROR_INVALIDDATA;
          chunk_size += chunk_size & 1;
-
+ 
 +        // we need to dive into RIFF chunk
 +        if (chunk_type == MKTAG('R', 'I', 'F', 'F'))
 +            chunk_size = 4;
@@ -830,9 +830,9 @@ index 7d77d64524..0501590b84 100644
          if (bytestream2_get_bytes_left(&gb) < chunk_size) {
             /* we seem to be running out of data, but it could also be that the
                bitstream has trailing junk leading to bogus chunk_size. */
-@@ -1386,10 +1490,27 @@ static int webp_decode_frame(AVCodecContext *avctx, AVFrame *p,
+@@ -1386,40 +1490,76 @@ static int webp_decode_frame(AVCodecContext *avctx, AVFrame *p,
          }
-
+ 
          switch (chunk_type) {
 +        case MKTAG('R', 'I', 'F', 'F'):
 +            if (bytestream2_get_le32(&gb) != MKTAG('W', 'E', 'B', 'P')) {
@@ -860,7 +860,14 @@ index 7d77d64524..0501590b84 100644
                                               chunk_size);
                  if (ret < 0)
                      return ret;
-@@ -1398,8 +1519,12 @@ static int webp_decode_frame(AVCodecContext *avctx, AVFrame *p,
++                if (s->vp8x_flags & VP8X_FLAG_ANIMATION) {
++                    ret = ff_set_dimensions(avctx, s->canvas_width, s->canvas_height);
++                    if (ret < 0)
++                        return ret;
++                    avctx->pix_fmt = AV_PIX_FMT_YUVA420P;
++                }
+             }
+             bytestream2_skip(&gb, chunk_size);
              break;
          case MKTAG('V', 'P', '8', 'L'):
              if (!*got_frame) {
@@ -875,7 +882,14 @@ index 7d77d64524..0501590b84 100644
                                                  chunk_size, 0);
                  if (ret < 0)
                      return ret;
-@@ -1408,18 +1533,21 @@ FF_DISABLE_DEPRECATION_WARNINGS
++                if (s->vp8x_flags & VP8X_FLAG_ANIMATION) {
++                    ret = ff_set_dimensions(avctx, s->canvas_width, s->canvas_height);
++                    if (ret < 0)
++                        return ret;
++                    avctx->pix_fmt = AV_PIX_FMT_ARGB;
++                }
+ #if FF_API_CODEC_PROPS
+ FF_DISABLE_DEPRECATION_WARNINGS
                  avctx->properties |= FF_CODEC_PROPERTY_LOSSLESS;
  FF_ENABLE_DEPRECATION_WARNINGS
  #endif
@@ -899,16 +913,16 @@ index 7d77d64524..0501590b84 100644
              ret = av_image_check_size(s->width, s->height, 0, avctx);
              if (ret < 0)
                  return ret;
-@@ -1427,7 +1555,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
+@@ -1427,7 +1567,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
          case MKTAG('A', 'L', 'P', 'H'): {
              int alpha_header, filter_m, compression;
-
+ 
 -            if (!(vp8x_flags & VP8X_FLAG_ALPHA)) {
 +            if (!(s->vp8x_flags & VP8X_FLAG_ALPHA)) {
                  av_log(avctx, AV_LOG_WARNING,
                         "ALPHA chunk present, but alpha bit not set in the "
                         "VP8X header\n");
-@@ -1436,8 +1564,9 @@ FF_ENABLE_DEPRECATION_WARNINGS
+@@ -1436,8 +1576,9 @@ FF_ENABLE_DEPRECATION_WARNINGS
                  av_log(avctx, AV_LOG_ERROR, "invalid ALPHA chunk size\n");
                  return AVERROR_INVALIDDATA;
              }
@@ -918,8 +932,8 @@ index 7d77d64524..0501590b84 100644
 +            s->alpha_data      = data + bytestream2_tell(&gb);
              s->alpha_data_size = chunk_size - 1;
              bytestream2_skip(&gb, s->alpha_data_size);
-
-@@ -1464,14 +1593,14 @@ FF_ENABLE_DEPRECATION_WARNINGS
+ 
+@@ -1464,14 +1605,14 @@ FF_ENABLE_DEPRECATION_WARNINGS
                  av_log(avctx, AV_LOG_VERBOSE, "Ignoring extra EXIF chunk\n");
                  goto exif_end;
              }
@@ -928,7 +942,7 @@ index 7d77d64524..0501590b84 100644
                  av_log(avctx, AV_LOG_WARNING,
                         "EXIF chunk present, but Exif bit not set in the "
                         "VP8X header\n");
-
+ 
              s->has_exif = 1;
 -            bytestream2_init(&exif_gb, avpkt->data + exif_offset,
 -                             avpkt->size - exif_offset);
@@ -937,17 +951,17 @@ index 7d77d64524..0501590b84 100644
              if (ff_tdecode_header(&exif_gb, &le, &ifd_offset) < 0) {
                  av_log(avctx, AV_LOG_ERROR, "invalid TIFF header "
                         "in Exif data\n");
-@@ -1484,7 +1613,8 @@ FF_ENABLE_DEPRECATION_WARNINGS
+@@ -1484,7 +1625,8 @@ FF_ENABLE_DEPRECATION_WARNINGS
                  goto exif_end;
              }
-
+ 
 -            av_dict_copy(&p->metadata, exif_metadata, 0);
 +            av_dict_copy((s->vp8x_flags & VP8X_FLAG_ANIMATION) ? &p->metadata : &s->frame->metadata,
 +                         exif_metadata, 0);
-
+ 
  exif_end:
              av_dict_free(&exif_metadata);
-@@ -1499,13 +1629,12 @@ exif_end:
+@@ -1499,13 +1641,12 @@ exif_end:
                  bytestream2_skip(&gb, chunk_size);
                  break;
              }
@@ -956,13 +970,13 @@ index 7d77d64524..0501590b84 100644
                  av_log(avctx, AV_LOG_WARNING,
                         "ICCP chunk present, but ICC Profile bit not set in the "
                         "VP8X header\n");
-
+ 
              s->has_iccp = 1;
 -
              ret = ff_frame_new_side_data(avctx, p, AV_FRAME_DATA_ICC_PROFILE, chunk_size, &sd);
              if (ret < 0)
                  return ret;
-@@ -1517,14 +1646,84 @@ exif_end:
+@@ -1517,14 +1658,84 @@ exif_end:
              }
              break;
          }
@@ -1052,10 +1066,10 @@ index 7d77d64524..0501590b84 100644
          default:
              AV_WL32(chunk_str, chunk_type);
              av_log(avctx, AV_LOG_VERBOSE, "skipping unknown chunk: %s\n",
-@@ -1534,22 +1733,620 @@ exif_end:
+@@ -1534,22 +1745,620 @@ exif_end:
          }
      }
-
+ 
 -    if (!*got_frame) {
 -        av_log(avctx, AV_LOG_ERROR, "image data not found\n");
 -        return AVERROR_INVALIDDATA;
@@ -1171,7 +1185,7 @@ index 7d77d64524..0501590b84 100644
 +            dest_v++;
 +        }
      }
-
+ 
 -    return avpkt->size;
 +    // blend Y & A planes
 +    for (int y = 0; y < height; y++) {
@@ -1633,14 +1647,14 @@ index 7d77d64524..0501590b84 100644
 +    av_frame_unref(s->frame);
 +    return ret;
  }
-
+ 
  static av_cold int webp_decode_init(AVCodecContext *avctx)
  {
      WebPContext *s = avctx->priv_data;
 +    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(AV_PIX_FMT_YUVA420P);
 +    int ret;
 +    const AVCodec *codec;
-
+ 
 +    s->avctx = avctx;
      s->pkt = av_packet_alloc();
 -    if (!s->pkt)
@@ -1650,7 +1664,7 @@ index 7d77d64524..0501590b84 100644
 +        av_frame_free(&s->frame);
          return AVERROR(ENOMEM);
 +    }
-
+ 
 +    // prepare data pointers for YUVA background
 +    for (int i = 0; i < 4; i++)
 +        s->background_data[i] = &s->background_yuva[i];
@@ -1677,10 +1691,10 @@ index 7d77d64524..0501590b84 100644
 +    }
      return 0;
  }
-
-@@ -1558,22 +2355,60 @@ static av_cold int webp_decode_close(AVCodecContext *avctx)
+ 
+@@ -1558,22 +2367,60 @@ static av_cold int webp_decode_close(AVCodecContext *avctx)
      WebPContext *s = avctx->priv_data;
-
+ 
      av_packet_free(&s->pkt);
 -
 -    if (s->initialized)
@@ -1688,10 +1702,10 @@ index 7d77d64524..0501590b84 100644
 +    ff_progress_frame_unref(&s->canvas_frame);
 +    av_frame_free(&s->frame);
 +    avcodec_free_context(&s->avctx_vp8);
-
+ 
      return 0;
  }
-
+ 
 +static void webp_decode_flush(AVCodecContext *avctx)
 +{
 +    WebPContext *s = avctx->priv_data;
@@ -1743,7 +1757,7 @@ index 7d77d64524..0501590b84 100644
      .caps_internal  = FF_CODEC_CAP_ICC_PROFILES |
                        FF_CODEC_CAP_USES_PROGRESSFRAMES,
 diff --git a/libavformat/Makefile b/libavformat/Makefile
-index ab5551a735..8312d5d60f 100644
+index ab5551a7357863e430cd49e3f6dea3eea63ceda0..8312d5d60f89e166abd5382e3b4e457f5c33e6c3 100644
 --- a/libavformat/Makefile
 +++ b/libavformat/Makefile
 @@ -637,6 +637,7 @@ OBJS-$(CONFIG_WEBM_MUXER)                += matroskaenc.o matroska.o \
@@ -1755,7 +1769,7 @@ index ab5551a735..8312d5d60f 100644
  OBJS-$(CONFIG_WEBVTT_DEMUXER)            += webvttdec.o subtitles.o
  OBJS-$(CONFIG_WEBVTT_MUXER)              += webvttenc.o
 diff --git a/libavformat/allformats.c b/libavformat/allformats.c
-index e39eab8e85..846e54aab6 100644
+index e39eab8e85d7b3b960c3db9082a3dc067bfc21f5..846e54aab63541f2675fbeae34d0677f0a70a3e6 100644
 --- a/libavformat/allformats.c
 +++ b/libavformat/allformats.c
 @@ -514,6 +514,7 @@ extern const FFInputFormat  ff_webm_dash_manifest_demuxer;
@@ -1768,7 +1782,7 @@ index e39eab8e85..846e54aab6 100644
  extern const FFInputFormat  ff_wsaud_demuxer;
 diff --git a/libavformat/webpdec.c b/libavformat/webpdec.c
 new file mode 100644
-index 0000000000..97b0285c3c
+index 0000000000000000000000000000000000000000..97b0285c3c56c6c22c6d9bc386e48cf586651194
 --- /dev/null
 +++ b/libavformat/webpdec.c
 @@ -0,0 +1,401 @@
@@ -2173,6 +2187,3 @@ index 0000000000..97b0285c3c
 +    .read_header    = webp_read_header,
 +    .read_packet    = webp_read_packet,
 +};
---
-2.43.0
-
